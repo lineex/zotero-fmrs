@@ -30,6 +30,8 @@ declare namespace _ZoteroTypes {
       "pop3Username": string;
       "pop3Password": string;
       "agentMailRefreshMinutes": number;
+      "powerShellPath": string;
+      "cmdPath": string;
     };
   }
 }

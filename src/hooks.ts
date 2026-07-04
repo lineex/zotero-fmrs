@@ -166,6 +166,9 @@ function ensureDefaultDownloadPrefs() {
   if (!String(getPref("agentMailCliPath") || "").trim()) {
     setPref("agentMailCliPath", Common.defaultAgentMailCliPath());
   }
+  if (!String(getPref("defaultEmail") || "").trim()) {
+    setPref("defaultEmail", "surehlin10@163.com");
+  }
   if (!getPref("mailBackend")) {
     setPref("mailBackend", "pop3");
   }

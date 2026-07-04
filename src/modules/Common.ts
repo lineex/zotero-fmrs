@@ -323,7 +323,7 @@ export class Common {
       getPref("accessMode") || "1",
     );
     this.dialogInput(win, "defaultEmail").value = String(
-      getPref("defaultEmail") || "",
+      getPref("defaultEmail") || "surehlin10@163.com",
     );
     this.dialogCheckbox(win, "autoRequest").checked = Boolean(
       getPref("autoRequestFullText"),
@@ -384,7 +384,10 @@ export class Common {
       "accessMode",
       this.dialogInput(win, "accessMode").value.trim() || "1",
     );
-    setPref("defaultEmail", this.dialogInput(win, "defaultEmail").value.trim());
+    setPref(
+      "defaultEmail",
+      this.dialogInput(win, "defaultEmail").value.trim() || "surehlin10@163.com",
+    );
     setPref("autoRequestFullText", this.dialogCheckbox(win, "autoRequest").checked);
 
     setPref(

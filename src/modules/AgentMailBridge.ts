@@ -5,10 +5,6 @@ import {
   titleMatches,
 } from "./Identifiers";
 
-declare const FileUtils: {
-  getFile(key: string, pathArray: string[]): nsIFile;
-};
-
 declare const ChromeUtils: {
   importESModule(path: string): any;
 };
@@ -449,7 +445,7 @@ export class AgentMailBridge {
   }
 
   static async downloadAttachment(record: AttachmentRecord) {
-    if (record.downloadUrl && OS.Path.split(record.downloadUrl).absolute) {
+    if (record.downloadUrl && this.isAbsolutePath(record.downloadUrl)) {
       return record.downloadUrl;
     }
 
@@ -464,7 +460,7 @@ export class AgentMailBridge {
     const workdir = await this.ensureWorkdir();
     const relativeOutput = "./downloads";
     await Zotero.File.createDirectoryIfMissingAsync(
-      OS.Path.join(workdir, "downloads"),
+      this.pathJoin(workdir, "downloads"),
     );
 
     const data = (await this.runCliJson(
@@ -486,13 +482,36 @@ export class AgentMailBridge {
     if (!savedTo) {
       throw new Error("agent-mail-download-failed");
     }
-    return OS.Path.split(savedTo).absolute
-      ? savedTo
-      : OS.Path.join(workdir, savedTo);
+    return this.isAbsolutePath(savedTo) ? savedTo : this.pathJoin(workdir, savedTo);
+  }
+
+  static getSearchTerms(record: AttachmentRecord) {
+    const parsed = parseLiteratureReply(record);
+    const identifiers = extractIdentifiersFromTexts([
+      parsed.identifier,
+      record.subject,
+      record.filename,
+      record.body || "",
+    ]);
+    const terms = [
+      identifiers.doi,
+      identifiers.pmid,
+      parsed.title,
+      cleanReplySubject(record.subject),
+      record.filename.replace(/\.pdf$/i, "").replace(/^DOI/i, ""),
+    ];
+    return uniqueStrings(
+      terms
+        .map((term) => term.trim())
+        .filter((term) => term.length >= 4),
+    );
   }
 
   static matchesItem(record: AttachmentRecord, item: Zotero.Item) {
+    const parsed = parseLiteratureReply(record);
     const recordIdentifiers = extractIdentifiersFromTexts([
+      parsed.identifier,
+      parsed.title,
       record.subject,
       record.filename,
       record.body || "",
@@ -522,11 +541,15 @@ export class AgentMailBridge {
 
     const itemDoiLoose = normalizeLooseIdentifier(itemIdentifiers.doi);
     const itemPmid = itemIdentifiers.pmid;
-    const subject = record.subject || record.filename;
+    const subject = parsed.title || cleanReplySubject(record.subject) || record.filename;
     const attachmentStem = record.filename.replace(/\.pdf$/i, "");
-    const recordTexts = [subject, attachmentStem, String(record.body || "")].filter(
-      Boolean,
-    ) as string[];
+    const recordTexts = [
+      parsed.identifier,
+      parsed.title,
+      subject,
+      attachmentStem,
+      String(record.body || ""),
+    ].filter(Boolean) as string[];
 
     if (
       itemDoiLoose &&
@@ -610,18 +633,25 @@ export class AgentMailBridge {
     return JSON.parse(text) as Pop3Response;
   }
 
+  private static getPowerShellPath() {
+    if (!Zotero.isWin) {
+      return "pwsh";
+    }
+    return "/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe";
+  }
+
+  private static getShellPath() {
+    if (!Zotero.isWin) {
+      return "/bin/sh";
+    }
+    return "/c/Windows/System32/cmd.exe";
+  }
+
   private static async runPowerShell(scriptPath: string, args: string[]) {
     const { Subprocess } = ChromeUtils.importESModule(
       "resource://gre/modules/Subprocess.sys.mjs",
     ) as any;
-    const powershell = Zotero.isWin
-      ? FileUtils.getFile("WinD", [
-          "System32",
-          "WindowsPowerShell",
-          "v1.0",
-          "powershell.exe",
-        ]).path
-      : "pwsh";
+    const powershell = this.getPowerShellPath();
     const proc = await Subprocess.call({
       command: powershell,
       arguments: [
@@ -670,9 +700,7 @@ export class AgentMailBridge {
     const { Subprocess } = ChromeUtils.importESModule(
       "resource://gre/modules/Subprocess.sys.mjs",
     ) as any;
-    const shellPath = Zotero.isWin
-      ? FileUtils.getFile("WinD", ["System32", "cmd.exe"]).path
-      : "/bin/sh";
+    const shellPath = this.getShellPath();
     const shellArgs = Zotero.isWin
       ? ["/d", "/s", "/c", command]
       : ["-lc", command];
@@ -698,6 +726,88 @@ export class AgentMailBridge {
     };
   }
 }
+
+
+function parseLiteratureReply(record: AttachmentRecord) {
+  const body = stripHtml(String(record.body || ""));
+  const subject = cleanReplySubject(record.subject);
+  return {
+    identifier: readLabeledValue(body, [
+      "全文ID号",
+      "全文ID",
+      "DOI",
+      "doi",
+      "Identifier",
+    ]),
+    title: readLabeledValue(body, ["标题", "題名", "Title", "title"]) || subject,
+    author: readLabeledValue(body, ["作者", "Author", "Authors"]),
+    pages: readLabeledValue(body, ["页码", "頁碼", "Pages"]),
+  };
+}
+
+function cleanReplySubject(subject: string) {
+  return String(subject || "")
+    .replace(/^(成功回复|回复|回覆|答复|Re|FW|Fwd)\s*[:：]\s*/i, "")
+    .trim();
+}
+
+function readLabeledValue(text: string, labels: string[]) {
+  for (const label of labels) {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(
+      `[【\\[]\\s*${escaped}\\s*[】\\]]\\s*[:：]?\\s*([^\\r\\n]+)`,
+      "i",
+    );
+    const bracketed = text.match(pattern);
+    if (bracketed?.[1]) {
+      return cleanMailValue(bracketed[1]);
+    }
+
+    const plain = text.match(
+      new RegExp(`^\\s*${escaped}\\s*[:：]\\s*([^\\r\\n]+)`, "im"),
+    );
+    if (plain?.[1]) {
+      return cleanMailValue(plain[1]);
+    }
+  }
+  return "";
+}
+
+function cleanMailValue(value: string) {
+  return value
+    .replace(/^\s*[：:]\s*/, "")
+    .replace(/[;；,，。]+$/g, "")
+    .replace(/^\["?|"?\]$/g, "")
+    .replace(/^\["?|"?;?\]$/g, "")
+    .trim();
+}
+
+function stripHtml(value: string) {
+  return value
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\r\n/g, "\n");
+}
+
+function uniqueStrings(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const key = value.toLowerCase();
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(value);
+  }
+  return result;
+}
+
 
 function normalizeDOI(value?: string) {
   return String(value || "").trim().toLowerCase();
