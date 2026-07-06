@@ -531,71 +531,108 @@ export class AgentMailBridge {
       String(item.getField("extra") || ""),
     ]);
 
+    const itemPmid = itemIdentifiers.pmid;
+    const itemDoi = normalizeDOI(itemIdentifiers.doi);
+
     const recordFmrsId = extractFmrsIdFromTexts([
       parsed.identifier,
       record.subject,
       record.filename,
       record.body || "",
     ]);
-    if (recordFmrsId) {
-      const extra = String(item.getField("extra") || "");
-      if (extra.toUpperCase().includes(recordFmrsId)) {
+
+    // 1. 100% exact match checks:
+    // If the FMRS ID is equal to P + item.PMID or S + item.PMID
+    if (recordFmrsId && itemPmid) {
+      const pmidMatch = recordFmrsId === `P${itemPmid}` || recordFmrsId === `S${itemPmid}`;
+      if (pmidMatch) {
         return true;
       }
     }
 
     if (
       recordIdentifiers.doi &&
-      itemIdentifiers.doi &&
-      normalizeDOI(recordIdentifiers.doi) === normalizeDOI(itemIdentifiers.doi)
+      itemDoi &&
+      normalizeDOI(recordIdentifiers.doi) === itemDoi
     ) {
       return true;
     }
 
     if (
       recordIdentifiers.pmid &&
-      itemIdentifiers.pmid &&
-      recordIdentifiers.pmid === itemIdentifiers.pmid
-    ) {
-      return true;
-    }
-
-    const itemDoiLoose = normalizeLooseIdentifier(itemIdentifiers.doi);
-    const itemPmid = itemIdentifiers.pmid;
-    const subject = parsed.title || cleanReplySubject(record.subject) || record.filename;
-    const attachmentStem = record.filename.replace(/\.pdf$/i, "");
-    const recordTexts = [
-      parsed.identifier,
-      parsed.title,
-      subject,
-      attachmentStem,
-      String(record.body || ""),
-    ].filter(Boolean) as string[];
-
-    if (
-      itemDoiLoose &&
-      recordTexts.some((text) => normalizeLooseIdentifier(text).includes(itemDoiLoose))
-    ) {
-      return true;
-    }
-
-    if (
       itemPmid &&
-      recordTexts.some((text) => containsLoosePMID(text, itemPmid))
+      recordIdentifiers.pmid === itemPmid
     ) {
       return true;
     }
 
-    const candidates = [
-      item.getDisplayTitle(),
-      String(item.getField("title") || ""),
-      String(item.getField("shortTitle") || ""),
-      String(item.getField("extra") || ""),
-    ].filter(Boolean) as string[];
+    // 2. Multi-factor matching check (at least 2 fields matching):
+    let matchCount = 0;
 
-    return candidates.some((candidate) => {
-      return recordTexts.some((text) => titleMatches(candidate, text));
-    });
+    // Feature 1: Title match (compare parsed title or clean subject)
+    const itemTitle = String(item.getField("title") || "");
+    const subjectTitle = parsed.title || cleanReplySubject(record.subject) || record.filename;
+    if (itemTitle && subjectTitle && titleMatches(itemTitle, subjectTitle)) {
+      matchCount++;
+    }
+
+    // Feature 2: Author match
+    const itemCreators = item.getCreators(); // [{ firstName, lastName, creatorTypeID }]
+    if (parsed.author && itemCreators.length > 0) {
+      const emailAuthorText = parsed.author.toLowerCase();
+      const anyAuthorMatches = itemCreators.some((c) => {
+        const lastName = String(c.lastName || "").trim().toLowerCase();
+        const firstName = String(c.firstName || "").trim().toLowerCase();
+        return (
+          (lastName && emailAuthorText.includes(lastName)) ||
+          (firstName && emailAuthorText.includes(firstName))
+        );
+      });
+      if (anyAuthorMatches) {
+        matchCount++;
+      }
+    }
+
+    // Feature 3: Journal Name match
+    const itemJournal = String(item.getField("publicationTitle") || item.getField("journalAbbreviation") || "");
+    if (parsed.journal && itemJournal && titleMatches(itemJournal, parsed.journal)) {
+      matchCount++;
+    }
+
+    // Feature 4: Year match
+    const itemDate = String(item.getField("date") || "");
+    const itemYear = itemDate.match(/\b(19|20)\d{2}\b/)?.[0] || "";
+    if (parsed.year && itemYear && parsed.year.includes(itemYear)) {
+      matchCount++;
+    }
+
+    // Feature 5: Volume match
+    const itemVolume = String(item.getField("volume") || "").trim().toLowerCase();
+    const parsedVolume = parsed.volume.trim().toLowerCase();
+    if (parsedVolume && itemVolume && parsedVolume === itemVolume) {
+      matchCount++;
+    }
+
+    // Feature 6: Issue match
+    const itemIssue = String(item.getField("issue") || "").trim().toLowerCase();
+    const parsedIssue = parsed.issue.trim().toLowerCase();
+    if (parsedIssue && itemIssue && parsedIssue === itemIssue) {
+      matchCount++;
+    }
+
+    // Feature 7: Pages match
+    const itemPages = String(item.getField("pages") || "").trim().toLowerCase();
+    const parsedPages = parsed.pages.trim().toLowerCase();
+    if (parsedPages && itemPages && (parsedPages === itemPages || itemPages.includes(parsedPages))) {
+      matchCount++;
+    }
+
+    // If at least 2 fields match, return true
+    if (matchCount >= 2) {
+      return true;
+    }
+
+    return false;
   }
 
   private static getCliCommand() {
@@ -778,7 +815,11 @@ function parseLiteratureReply(record: AttachmentRecord) {
     ]),
     title: readLabeledValue(body, ["标题", "題名", "Title", "title"]) || subject,
     author: readLabeledValue(body, ["作者", "Author", "Authors"]),
-    pages: readLabeledValue(body, ["页码", "頁碼", "Pages"]),
+    journal: readLabeledValue(body, ["刊名", "期刊", "Journal", "journal"]),
+    year: readLabeledValue(body, ["出版年", "年份", "Year", "year"]),
+    volume: readLabeledValue(body, ["卷", "Volume", "volume"]),
+    issue: readLabeledValue(body, ["期", "Issue", "issue"]),
+    pages: readLabeledValue(body, ["页码", "頁碼", "Pages", "pages"]),
   };
 }
 

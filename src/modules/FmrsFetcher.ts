@@ -221,7 +221,6 @@ export class FmrsFetcher {
         article,
         fmrsTitle,
         session.email,
-        item,
       );
       if (ok) {
         if (notify) {
@@ -273,7 +272,7 @@ export class FmrsFetcher {
             continue;
           }
           const fmrsTitle = String(article.ti || itemTitle || "FMRS item");
-          await this.submitRequest(session.client, article, fmrsTitle, session.email, item);
+          await this.submitRequest(session.client, article, fmrsTitle, session.email);
           continue;
         }
 
@@ -687,8 +686,11 @@ export class FmrsFetcher {
         const search = new Zotero.Search({ libraryID: library.libraryID });
         if (term.includes("/") && term.match(/\b10\.\d{4,9}\//i)) {
           search.addCondition("DOI", "is", term);
-        } else if (/^\d{4,12}$/.test(term) || /^[PS]\d{6,12}$/i.test(term)) {
+        } else if (/^\d{4,12}$/.test(term)) {
           search.addCondition("extra", "contains", term);
+        } else if (/^[PS](\d{6,12})$/i.test(term)) {
+          const pmid = term.match(/^[PS](\d{6,12})$/i)?.[1] || "";
+          search.addCondition("extra", "contains", pmid);
         } else {
           search.addCondition("title", "contains", term);
         }
@@ -740,22 +742,9 @@ export class FmrsFetcher {
     article: FmrsArticle,
     title: string,
     email: string,
-    item?: Zotero.Item,
   ) {
     const result = await client.requestFullText(article.id, email);
     if (result.ok) {
-      if (item && article.id) {
-        try {
-          let extra = String(item.getField("extra") || "");
-          if (!extra.toUpperCase().includes(article.id.toUpperCase())) {
-            extra = extra ? `${extra}\nFMRS_ID: ${article.id}` : `FMRS_ID: ${article.id}`;
-            item.setField("extra", extra);
-            await item.saveTx();
-          }
-        } catch (e) {
-          ztoolkit.log(`[FMRS] failed to save FMRS ID to extra field: ${e}`);
-        }
-      }
       this.notify(getString("popwin-email-sent"), title, "success");
       return true;
     }
