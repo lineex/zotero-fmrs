@@ -276,6 +276,11 @@ export class AgentMailBridge {
         continue;
       }
 
+      const subject = String(rawRecord?.subject || "").trim();
+      if (!/^(成功回复|成功回覆|成功答复)\s*[:：]?\s*/i.test(subject)) {
+        continue;
+      }
+
       const filename = String(rawRecord?.filename || "").trim();
       const savedTo = String(rawRecord?.savedTo || "").trim();
       if (!filenameLooksLikePdf(filename) || !savedTo) {
@@ -380,6 +385,11 @@ export class AgentMailBridge {
         .trim()
         .toLowerCase();
       if (senderFilter && fromEmail !== senderFilter) {
+        continue;
+      }
+
+      const subject = String(message?.subject || "").trim();
+      if (!/^(成功回复|成功回覆|成功答复)\s*[:：]?\s*/i.test(subject)) {
         continue;
       }
 
