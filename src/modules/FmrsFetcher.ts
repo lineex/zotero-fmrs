@@ -627,12 +627,12 @@ export class FmrsFetcher {
     return "";
   }
 
-  static async pollAgentMail(): Promise<PollSummary> {
+  static async pollAgentMail(options: { interactive?: boolean } = {}): Promise<PollSummary> {
     return AgentMailBridge.pollAndImport({
       findItemForRecord: async (record) => this.findItemForRecord(record),
       importAttachmentToItem: async (record, item) =>
         this.importAgentMailAttachment(record, item),
-    });
+    }, options);
   }
 
   static async pollAndImportForItems(items: Zotero.Item[]) {
@@ -653,7 +653,7 @@ export class FmrsFetcher {
         },
         importAttachmentToItem: async (record, item) =>
           this.importAgentMailAttachment(record, item),
-      });
+      }, { interactive: true });
 
       if (summary.imported > 0) {
         this.notify(

@@ -48,6 +48,9 @@ export async function registerPrefsScripts(_window: Window) {
   const mailBackend = _window.document.querySelector(
     `#zotero-prefpane-${config.addonRef}-mailBackend`,
   ) as HTMLSelectElement;
+  const agentMailMatchMode = _window.document.querySelector(
+    `#zotero-prefpane-${config.addonRef}-agentMailMatchMode`,
+  ) as HTMLSelectElement;
   const mailSection = _window.document.querySelector(
     `#zotero-prefpane-${config.addonRef}-mailSection`,
   ) as HTMLElement;
@@ -146,6 +149,7 @@ export async function registerPrefsScripts(_window: Window) {
 
     agentMailEnabled.checked = Boolean(getPref("agentMailEnabled"));
     mailBackend.value = String(getPref("mailBackend") || "pop3");
+    agentMailMatchMode.value = String(getPref("agentMailMatchMode") || "auto");
     pop3Username.value = String(getPref("pop3Username") || "");
     pop3Password.value = String(getPref("pop3Password") || "");
     pop3Host.value = String(getPref("pop3Host") || "pop.163.com");
@@ -181,6 +185,7 @@ export async function registerPrefsScripts(_window: Window) {
 
     setPref("agentMailEnabled", agentMailEnabled.checked);
     setPref("mailBackend", mailBackend.value || "pop3");
+    setPref("agentMailMatchMode", agentMailMatchMode.value || "auto");
     setPref("pop3Username", pop3Username.value.trim() || "");
     setPref("pop3Password", pop3Password.value.trim() || "");
     setPref("pop3Host", pop3Host.value.trim() || "pop.163.com");

@@ -129,7 +129,7 @@ async function runMailSync(force = false) {
   }
   addon.data.mailSyncRunning = true;
   try {
-    const summary = await FmrsFetcher.pollAgentMail();
+    const summary = await FmrsFetcher.pollAgentMail({ interactive: force });
     if (summary.imported > 0) {
       FmrsFetcher.notify(
         "FMRS Mail",
@@ -171,6 +171,9 @@ function ensureDefaultDownloadPrefs() {
   }
   if (!getPref("mailBackend")) {
     setPref("mailBackend", "pop3");
+  }
+  if (!getPref("agentMailMatchMode")) {
+    setPref("agentMailMatchMode", "auto");
   }
   if (!String(getPref("pop3Username") || "").trim()) {
     setPref("pop3Username", "");

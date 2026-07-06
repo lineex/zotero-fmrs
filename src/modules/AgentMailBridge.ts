@@ -1,4 +1,5 @@
 import { getPref, setPref } from "../utils/prefs";
+import { getString } from "../utils/locale";
 import {
   extractIdentifiersFromTexts,
   filenameLooksLikePdf,
@@ -217,20 +218,26 @@ export class AgentMailBridge {
     }
   }
 
-  static async pollAndImport(client: {
-    findItemForRecord(record: AttachmentRecord): Promise<Zotero.Item | null>;
-    importAttachmentToItem(record: AttachmentRecord, item: Zotero.Item): Promise<boolean>;
-  }): Promise<PollSummary> {
+  static async pollAndImport(
+    client: {
+      findItemForRecord(record: AttachmentRecord): Promise<Zotero.Item | null>;
+      importAttachmentToItem(record: AttachmentRecord, item: Zotero.Item): Promise<boolean>;
+    },
+    options: { interactive?: boolean } = {},
+  ): Promise<PollSummary> {
     if (this.backend === "pop3") {
-      return this.pollPop3AndImport(client);
+      return this.pollPop3AndImport(client, options);
     }
-    return this.pollAgentlyAndImport(client);
+    return this.pollAgentlyAndImport(client, options);
   }
 
-  private static async pollPop3AndImport(client: {
-    findItemForRecord(record: AttachmentRecord): Promise<Zotero.Item | null>;
-    importAttachmentToItem(record: AttachmentRecord, item: Zotero.Item): Promise<boolean>;
-  }): Promise<PollSummary> {
+  private static async pollPop3AndImport(
+    client: {
+      findItemForRecord(record: AttachmentRecord): Promise<Zotero.Item | null>;
+      importAttachmentToItem(record: AttachmentRecord, item: Zotero.Item): Promise<boolean>;
+    },
+    options: { interactive?: boolean } = {},
+  ): Promise<PollSummary> {
     const summary: PollSummary = {
       scanned: 0,
       matched: 0,
@@ -307,6 +314,21 @@ export class AgentMailBridge {
           continue;
         }
 
+        const isExact = await this.isExactMatchCheck(record, item);
+        const matchMode = String(getPref("agentMailMatchMode") || "auto");
+        if (matchMode === "manual") {
+          if (!isExact) {
+            if (options.interactive) {
+              const confirmed = await this.confirmMatch(record, item);
+              if (!confirmed) {
+                continue;
+              }
+            } else {
+              continue;
+            }
+          }
+        }
+
         summary.matched += 1;
         const ok = await client.importAttachmentToItem(record, item);
         if (ok) {
@@ -324,10 +346,13 @@ export class AgentMailBridge {
     return summary;
   }
 
-  private static async pollAgentlyAndImport(client: {
-    findItemForRecord(record: AttachmentRecord): Promise<Zotero.Item | null>;
-    importAttachmentToItem(record: AttachmentRecord, item: Zotero.Item): Promise<boolean>;
-  }): Promise<PollSummary> {
+  private static async pollAgentlyAndImport(
+    client: {
+      findItemForRecord(record: AttachmentRecord): Promise<Zotero.Item | null>;
+      importAttachmentToItem(record: AttachmentRecord, item: Zotero.Item): Promise<boolean>;
+    },
+    options: { interactive?: boolean } = {},
+  ): Promise<PollSummary> {
     const summary: PollSummary = {
       scanned: 0,
       matched: 0,
@@ -435,6 +460,21 @@ export class AgentMailBridge {
           const item = await client.findItemForRecord(record);
           if (!item) {
             continue;
+          }
+
+          const isExact = await this.isExactMatchCheck(record, item);
+          const matchMode = String(getPref("agentMailMatchMode") || "auto");
+          if (matchMode === "manual") {
+            if (!isExact) {
+              if (options.interactive) {
+                const confirmed = await this.confirmMatch(record, item);
+                if (!confirmed) {
+                  continue;
+                }
+              } else {
+                continue;
+              }
+            }
           }
 
           summary.matched += 1;
@@ -643,6 +683,85 @@ export class AgentMailBridge {
     }
 
     return false;
+  }
+
+  private static async isExactMatchCheck(record: AttachmentRecord, item: Zotero.Item): Promise<boolean> {
+    const parsed = parseLiteratureReply(record);
+    const recordIdentifiers = extractIdentifiersFromTexts([
+      parsed.identifier,
+      parsed.title,
+      record.subject,
+      record.filename,
+      record.body || "",
+    ]);
+    const itemIdentifiers = extractIdentifiersFromTexts([
+      String(item.getField("DOI") || ""),
+      String(item.getField("url") || ""),
+      String(item.getField("title") || ""),
+      String(item.getField("extra") || ""),
+    ]);
+
+    const itemPmid = itemIdentifiers.pmid;
+    const itemDoi = normalizeDOI(itemIdentifiers.doi);
+
+    const recordFmrsId = extractFmrsIdFromTexts([
+      parsed.identifier,
+      record.subject,
+      record.filename,
+      record.body || "",
+    ]);
+
+    if (recordFmrsId && itemPmid) {
+      const pmidMatch = recordFmrsId === `P${itemPmid}` || recordFmrsId === `S${itemPmid}`;
+      if (pmidMatch) {
+        return true;
+      }
+    }
+
+    if (
+      recordIdentifiers.doi &&
+      itemDoi &&
+      normalizeDOI(recordIdentifiers.doi) === itemDoi
+    ) {
+      return true;
+    }
+
+    if (
+      recordIdentifiers.pmid &&
+      itemPmid &&
+      recordIdentifiers.pmid === itemPmid
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private static async confirmMatch(record: AttachmentRecord, item: Zotero.Item): Promise<boolean> {
+    const matchMode = String(getPref("agentMailMatchMode") || "auto");
+    if (matchMode === "auto") {
+      return true;
+    }
+
+    try {
+      const win = Zotero.getMainWindow();
+      if (!win) {
+        return true;
+      }
+      
+      const title = getString("pref-mail-match-confirm");
+      const message = getString("pref-mail-match-confirm-message", {
+        args: {
+          subject: record.subject,
+          title: item.getField("title") || item.getDisplayTitle() || "Untitled",
+        },
+      });
+      
+      return win.confirm(`${title}\n\n${message}`);
+    } catch (e) {
+      ztoolkit.log(`[FMRS] failed to show confirm dialog: ${e}`);
+      return true;
+    }
   }
 
   private static getCliCommand() {

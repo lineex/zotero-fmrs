@@ -32,6 +32,7 @@ declare namespace _ZoteroTypes {
       "agentMailRefreshMinutes": number;
       "powerShellPath": string;
       "cmdPath": string;
+      "agentMailMatchMode": string;
     };
   }
 }

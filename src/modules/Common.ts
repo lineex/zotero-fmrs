@@ -346,6 +346,9 @@ export class Common {
     this.dialogSelect(win, "mailBackend").value = String(
       getPref("mailBackend") || "pop3",
     );
+    this.dialogSelect(win, "agentMailMatchMode").value = String(
+      getPref("agentMailMatchMode") || "auto",
+    );
     this.dialogInput(win, "pop3Username").value = String(
       getPref("pop3Username") || "",
     );
@@ -409,6 +412,7 @@ export class Common {
       this.dialogCheckbox(win, "agentMailEnabled").checked,
     );
     setPref("mailBackend", this.dialogSelect(win, "mailBackend").value || "pop3");
+    setPref("agentMailMatchMode", this.dialogSelect(win, "agentMailMatchMode").value || "auto");
     setPref(
       "pop3Username",
       this.dialogInput(win, "pop3Username").value.trim() || "",

@@ -78,4 +78,9 @@ pref-pop3-ssl-label = SSL
 pref-pop3-ssl = 使用 SSL
 pref-mail-verify-connection = 验证连接
 menuitem-mail-fetch = 从邮箱下载并附加
+pref-mail-matchMode-label = 邮件匹配模式
+pref-mail-matchMode-auto = 自动匹配（默认）
+pref-mail-matchMode-manual = 手动确认
+pref-mail-match-confirm = 匹配确认
+pref-mail-match-confirm-message = 发现邮件“{ $subject }”。\n核对到匹配的 Zotero 条目：\n“{ $title }”\n\n是否确认将此邮件的 PDF 附件导入并附加到该条目？
 

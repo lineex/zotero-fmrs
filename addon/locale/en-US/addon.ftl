@@ -78,4 +78,9 @@ pref-pop3-ssl-label = SSL
 pref-pop3-ssl = Use SSL
 pref-mail-verify-connection = Verify connection
 menuitem-mail-fetch = Download and attach from mail
+pref-mail-matchMode-label = Email matching mode
+pref-mail-matchMode-auto = Auto-match (default)
+pref-mail-matchMode-manual = Manual confirmation
+pref-mail-match-confirm = Match Confirmation
+pref-mail-match-confirm-message = Found email "{ $subject }".\nMatched with Zotero item:\n"{ $title }"\n\nDo you want to import and attach the PDF from this email to the item?
 
