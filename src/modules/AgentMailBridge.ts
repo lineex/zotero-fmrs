@@ -494,9 +494,16 @@ export class AgentMailBridge {
       record.filename,
       record.body || "",
     ]);
+    const fmrsId = extractFmrsIdFromTexts([
+      parsed.identifier,
+      record.subject,
+      record.filename,
+      record.body || "",
+    ]);
     const terms = [
       identifiers.doi,
       identifiers.pmid,
+      fmrsId,
       parsed.title,
       cleanReplySubject(record.subject),
       record.filename.replace(/\.pdf$/i, "").replace(/^DOI/i, ""),
@@ -523,6 +530,19 @@ export class AgentMailBridge {
       String(item.getField("title") || ""),
       String(item.getField("extra") || ""),
     ]);
+
+    const recordFmrsId = extractFmrsIdFromTexts([
+      parsed.identifier,
+      record.subject,
+      record.filename,
+      record.body || "",
+    ]);
+    if (recordFmrsId) {
+      const extra = String(item.getField("extra") || "");
+      if (extra.toUpperCase().includes(recordFmrsId)) {
+        return true;
+      }
+    }
 
     if (
       recordIdentifiers.doi &&
@@ -823,6 +843,18 @@ function uniqueStrings(values: string[]) {
     result.push(value);
   }
   return result;
+}
+
+
+function extractFmrsIdFromTexts(values: Array<string | undefined | null>): string {
+  for (const value of values) {
+    if (!value) continue;
+    const match = value.match(/\b([PS]\d{6,12})\b/i);
+    if (match) {
+      return match[1].toUpperCase();
+    }
+  }
+  return "";
 }
 
 
