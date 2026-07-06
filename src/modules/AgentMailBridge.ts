@@ -263,7 +263,7 @@ export class AgentMailBridge {
 
     const records = Array.isArray(data?.data) ? data.data : [];
     const senderFilter = this.watchSender;
-    const stopAtId = this.lastMessageId;
+    const stopAtId = options.interactive ? "" : this.lastMessageId;
     let newestMessageId = "";
 
     for (const rawRecord of records) {
@@ -391,7 +391,7 @@ export class AgentMailBridge {
       ? listData.data?.data || []
       : [];
     const senderFilter = this.watchSender;
-    const stopAtId = this.lastMessageId;
+    const stopAtId = options.interactive ? "" : this.lastMessageId;
     let newestMessageId = "";
 
     for (const message of messages) {
@@ -554,8 +554,8 @@ export class AgentMailBridge {
       identifiers.doi,
       identifiers.pmid,
       fmrsId,
-      parsed.title,
-      cleanReplySubject(record.subject),
+      getSafeSearchTitle(parsed.title),
+      getSafeSearchTitle(cleanReplySubject(record.subject)),
       record.filename.replace(/\.pdf$/i, "").replace(/^DOI/i, ""),
     ];
     return uniqueStrings(
@@ -1025,6 +1025,28 @@ function extractFmrsIdFromTexts(values: Array<string | undefined | null>): strin
     }
   }
   return "";
+}
+
+
+function getSafeSearchTitle(title: string): string {
+  if (!title) return "";
+  
+  let cleaned = title
+    .replace(/<[^>]*>/g, "")
+    .replace(/[【】\[\]\(\):：.,，。;；"'\-\?？\!！]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const hasChinese = /[\u4e00-\u9fa5]/.test(cleaned);
+  if (hasChinese) {
+    return cleaned.slice(0, 10).trim();
+  }
+
+  const words = cleaned.split(/\s+/).filter((w) => w.length >= 3);
+  if (words.length > 5) {
+    return words.slice(0, 5).join(" ");
+  }
+  return cleaned;
 }
 
 
