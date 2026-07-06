@@ -614,7 +614,6 @@ export class FmrsFetcher {
     client: FmrsClient,
     preferred?: string,
   ) {
-    const forcedDefault = "surehlin10@163.com";
     const candidate = String(preferred || "").trim();
     if (candidate) {
       return candidate;
@@ -622,15 +621,10 @@ export class FmrsFetcher {
 
     const configured = String(getPref("defaultEmail") || "").trim();
     if (configured) {
-      if (configured !== forcedDefault) {
-        setPref("defaultEmail", forcedDefault);
-      }
-      return forcedDefault;
+      return configured;
     }
 
-    setPref("defaultEmail", forcedDefault);
-    client.settings.defaultEmail = forcedDefault;
-    return forcedDefault;
+    return "";
   }
 
   static async pollAgentMail(): Promise<PollSummary> {
@@ -639,6 +633,45 @@ export class FmrsFetcher {
       importAttachmentToItem: async (record, item) =>
         this.importAgentMailAttachment(record, item),
     });
+  }
+
+  static async pollAndImportForItems(items: Zotero.Item[]) {
+    const regularItems = items.filter((item) => item.isRegularItem());
+    if (!regularItems.length) {
+      return;
+    }
+
+    this.notify("FMRS Mail Sync", "正在同步并匹配选定条目...", "default");
+
+    try {
+      const summary = await AgentMailBridge.pollAndImport({
+        findItemForRecord: async (record) => {
+          const match = regularItems.find((item) =>
+            AgentMailBridge.matchesItem(record, item),
+          );
+          return match || null;
+        },
+        importAttachmentToItem: async (record, item) =>
+          this.importAgentMailAttachment(record, item),
+      });
+
+      if (summary.imported > 0) {
+        this.notify(
+          "FMRS Mail Sync",
+          `成功导入并附加 ${summary.imported} 个 PDF 附件`,
+          "success",
+        );
+      } else {
+        this.notify(
+          "FMRS Mail Sync",
+          "未在邮箱中找到与所选条目匹配的新 PDF 附件",
+          "default",
+        );
+      }
+    } catch (error) {
+      ztoolkit.log(`[FMRS] targeted mail sync failed: ${error}`);
+      this.notify("FMRS Mail Sync", `同步失败: ${error}`, "fail");
+    }
   }
 
   static async findItemForRecord(record: AttachmentRecord) {
@@ -651,7 +684,13 @@ export class FmrsFetcher {
       const candidates: Zotero.Item[] = [];
       for (const term of searchTerms) {
         const search = new Zotero.Search({ libraryID: library.libraryID });
-        search.addCondition("title", "contains", term);
+        if (term.includes("/") && term.match(/\b10\.\d{4,9}\//i)) {
+          search.addCondition("DOI", "is", term);
+        } else if (/^\d{4,12}$/.test(term)) {
+          search.addCondition("extra", "contains", term);
+        } else {
+          search.addCondition("title", "contains", term);
+        }
         const ids = await search.search();
         const items = (await Zotero.Items.getAsync(ids)) as Zotero.Item[];
         for (const item of items) {

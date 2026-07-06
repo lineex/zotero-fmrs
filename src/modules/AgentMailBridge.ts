@@ -8,6 +8,7 @@ import {
 declare const ChromeUtils: {
   importESModule(path: string): any;
 };
+declare const Components: any;
 
 const SUGGESTED_WINDOWS_CLI_PATH =
   "D:\\program\\MyAgents\\nodejs\\agently-cli.cmd";
@@ -256,7 +257,7 @@ export class AgentMailBridge {
     const records = Array.isArray(data?.data) ? data.data : [];
     const senderFilter = this.watchSender;
     const stopAtId = this.lastMessageId;
-    let newestMessageId = stopAtId;
+    let newestMessageId = "";
 
     for (const rawRecord of records) {
       const messageId = String(rawRecord?.messageId || "").trim();
@@ -361,7 +362,7 @@ export class AgentMailBridge {
       : [];
     const senderFilter = this.watchSender;
     const stopAtId = this.lastMessageId;
-    let newestMessageId = stopAtId;
+    let newestMessageId = "";
 
     for (const message of messages) {
       const messageId = String(message?.message_id || "").trim();
@@ -637,14 +638,30 @@ export class AgentMailBridge {
     if (!Zotero.isWin) {
       return "pwsh";
     }
-    return "/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe";
+    let windir = "C:\\Windows";
+    try {
+      const env = Components.classes["@mozilla.org/process/environment;1"]
+        .getService(Components.interfaces.nsIEnvironment);
+      windir = env.get("SystemRoot") || env.get("windir") || "C:\\Windows";
+    } catch (e) {
+      // fallback
+    }
+    return `${windir}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
   }
 
   private static getShellPath() {
     if (!Zotero.isWin) {
       return "/bin/sh";
     }
-    return "/c/Windows/System32/cmd.exe";
+    let windir = "C:\\Windows";
+    try {
+      const env = Components.classes["@mozilla.org/process/environment;1"]
+        .getService(Components.interfaces.nsIEnvironment);
+      windir = env.get("SystemRoot") || env.get("windir") || "C:\\Windows";
+    } catch (e) {
+      // fallback
+    }
+    return `${windir}\\System32\\cmd.exe`;
   }
 
   private static async runPowerShell(scriptPath: string, args: string[]) {

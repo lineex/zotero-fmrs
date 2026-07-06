@@ -134,7 +134,7 @@ export async function registerPrefsScripts(_window: Window) {
     uid.value = String(getPref("uid") || "");
     token.value = String(getPref("token") || "");
     accessMode.value = String(getPref("accessMode") || "1");
-    defaultEmail.value = String(getPref("defaultEmail") || "surehlin10@163.com");
+    defaultEmail.value = String(getPref("defaultEmail") || "");
     autoRequest.checked = Boolean(getPref("autoRequestFullText"));
 
     autoDownloadOnAdd.checked =
@@ -172,7 +172,7 @@ export async function registerPrefsScripts(_window: Window) {
     setPref("uid", uid.value.trim());
     setPref("token", token.value.trim());
     setPref("accessMode", accessMode.value.trim() || "1");
-    setPref("defaultEmail", defaultEmail.value.trim() || "surehlin10@163.com");
+    setPref("defaultEmail", defaultEmail.value.trim() || "");
     setPref("autoRequestFullText", autoRequest.checked);
 
     setPref("autoDownloadOnAdd", autoDownloadOnAdd.checked);

@@ -17,6 +17,7 @@ export type FluentMessageId =
   | 'login-helper-steps-copied'
   | 'menuitem-fetch'
   | 'menuitem-login-helper'
+  | 'menuitem-mail-fetch'
   | 'menuitem-mail-sync'
   | 'menuitem-open-settings'
   | 'menuitem-refresh'

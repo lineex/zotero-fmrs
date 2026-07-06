@@ -323,7 +323,7 @@ export class Common {
       getPref("accessMode") || "1",
     );
     this.dialogInput(win, "defaultEmail").value = String(
-      getPref("defaultEmail") || "surehlin10@163.com",
+      getPref("defaultEmail") || "",
     );
     this.dialogCheckbox(win, "autoRequest").checked = Boolean(
       getPref("autoRequestFullText"),
@@ -386,7 +386,7 @@ export class Common {
     );
     setPref(
       "defaultEmail",
-      this.dialogInput(win, "defaultEmail").value.trim() || "surehlin10@163.com",
+      this.dialogInput(win, "defaultEmail").value.trim() || "",
     );
     setPref("autoRequestFullText", this.dialogCheckbox(win, "autoRequest").checked);
 
@@ -607,6 +607,21 @@ export class Common {
       commandListener: () => {
         const items = Zotero.getActiveZoteroPane().getSelectedItems();
         void DownloadCoordinator.requestFullText(items);
+      },
+      icon: menuIcon,
+    });
+
+    ztoolkit.Menu.register("item", {
+      tag: "menuitem",
+      id: "zotero-itemmenu-fmrs-mail-fetch",
+      label: getString("menuitem-mail-fetch"),
+      isHidden: () =>
+        !Zotero.getActiveZoteroPane()
+          .getSelectedItems()
+          .some((item) => item.isRegularItem()),
+      commandListener: () => {
+        const items = Zotero.getActiveZoteroPane().getSelectedItems();
+        void FmrsFetcher.pollAndImportForItems(items);
       },
       icon: menuIcon,
     });

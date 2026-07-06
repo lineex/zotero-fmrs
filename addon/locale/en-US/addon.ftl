@@ -77,3 +77,5 @@ pref-pop3-port-label = POP3 port
 pref-pop3-ssl-label = SSL
 pref-pop3-ssl = Use SSL
 pref-mail-verify-connection = Verify connection
+menuitem-mail-fetch = Download and attach from mail
+

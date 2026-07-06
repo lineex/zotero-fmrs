@@ -77,3 +77,5 @@ pref-pop3-port-label = POP3 連接埠
 pref-pop3-ssl-label = SSL
 pref-pop3-ssl = 使用 SSL
 pref-mail-verify-connection = 驗證連接
+menuitem-mail-fetch = 從郵箱下載並附加
+
