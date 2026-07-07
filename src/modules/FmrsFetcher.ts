@@ -661,6 +661,12 @@ export class FmrsFetcher {
           `成功导入并附加 ${summary.imported} 个 PDF 附件`,
           "success",
         );
+      } else if (summary.errors && summary.errors.length > 0) {
+        this.notify(
+          "FMRS Mail Sync",
+          `同步出错: ${summary.errors.join("; ")}`,
+          "fail",
+        );
       } else {
         this.notify(
           "FMRS Mail Sync",

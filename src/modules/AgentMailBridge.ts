@@ -118,10 +118,10 @@ export class AgentMailBridge {
   }
 
   static get pollLimit() {
-    const value = Number(getPref("agentMailPollLimit") || 10);
+    const value = Number(getPref("agentMailPollLimit") || 30);
     return Number.isFinite(value) && value > 0
       ? Math.min(Math.max(Math.trunc(value), 1), 50)
-      : 10;
+      : 30;
   }
 
   static get lastMessageId() {
@@ -279,12 +279,8 @@ export class AgentMailBridge {
       }
 
       const fromEmail = String(rawRecord?.senderEmail || "").trim().toLowerCase();
-      if (senderFilter && fromEmail !== senderFilter) {
-        continue;
-      }
-
       const subject = String(rawRecord?.subject || "").trim();
-      if (!/^(成功回复|成功回覆|成功答复)\s*[:：]?\s*/i.test(subject)) {
+      if (!isLiteratureEmail(fromEmail, subject, senderFilter)) {
         continue;
       }
 
@@ -409,12 +405,8 @@ export class AgentMailBridge {
       const fromEmail = String(message?.from?.email || "")
         .trim()
         .toLowerCase();
-      if (senderFilter && fromEmail !== senderFilter) {
-        continue;
-      }
-
       const subject = String(message?.subject || "").trim();
-      if (!/^(成功回复|成功回覆|成功答复)\s*[:：]?\s*/i.test(subject)) {
+      if (!isLiteratureEmail(fromEmail, subject, senderFilter)) {
         continue;
       }
 
@@ -592,7 +584,14 @@ export class AgentMailBridge {
     ]);
 
     // 1. 100% exact match checks:
-    // If the FMRS ID is equal to P + item.PMID or S + item.PMID
+    const itemExtra = String(item.getField("extra") || "");
+    if (recordFmrsId) {
+      const numericId = recordFmrsId.slice(1);
+      if (numericId && (itemExtra.includes(numericId) || (itemPmid && itemPmid.includes(numericId)))) {
+        return true;
+      }
+    }
+
     if (recordFmrsId && itemPmid) {
       const pmidMatch = recordFmrsId === `P${itemPmid}` || recordFmrsId === `S${itemPmid}`;
       if (pmidMatch) {
@@ -621,9 +620,14 @@ export class AgentMailBridge {
 
     // Feature 1: Title match (compare parsed title or clean subject)
     const itemTitle = String(item.getField("title") || "");
-    const subjectTitle = parsed.title || cleanReplySubject(record.subject) || record.filename;
+    const subjectTitle = parsed.title || cleanReplySubject(record.subject) || record.filename.replace(/\.pdf$/i, "");
     if (itemTitle && subjectTitle && titleMatches(itemTitle, subjectTitle)) {
       matchCount++;
+      // If the email body/subject doesn't contain any other metadata (author, journal, year), 
+      // we can't expect other features to match. In this case, the title match is strong enough.
+      if (!parsed.author && !parsed.journal && !parsed.year) {
+        matchCount++;
+      }
     }
 
     // Feature 2: Author match
@@ -710,6 +714,14 @@ export class AgentMailBridge {
       record.filename,
       record.body || "",
     ]);
+
+    const itemExtra = String(item.getField("extra") || "");
+    if (recordFmrsId) {
+      const numericId = recordFmrsId.slice(1);
+      if (numericId && (itemExtra.includes(numericId) || (itemPmid && itemPmid.includes(numericId)))) {
+        return true;
+      }
+    }
 
     if (recordFmrsId && itemPmid) {
       const pmidMatch = recordFmrsId === `P${itemPmid}` || recordFmrsId === `S${itemPmid}`;
@@ -817,7 +829,16 @@ export class AgentMailBridge {
     if (!text) {
       return {} as Pop3Response;
     }
-    return JSON.parse(text) as Pop3Response;
+    try {
+      const logPath = this.pathJoin(workdir, "failed-pop3-response.json");
+      await Zotero.File.putContentsAsync(logPath, text, "utf-8");
+      return JSON.parse(text) as Pop3Response;
+    } catch (error) {
+      ztoolkit.log(`[FMRS] POP3 JSON parse failed. Length: ${text.length}. Error: ${error}`);
+      ztoolkit.log(`[FMRS] POP3 Raw Text (first 500): ${text.slice(0, 500)}`);
+      ztoolkit.log(`[FMRS] POP3 Raw Text (last 500): ${text.slice(-500)}`);
+      throw new Error(`JSON解析错误: ${String(error).replace(/SyntaxError:\s*/i, "")}`);
+    }
   }
 
   private static getPowerShellPath() {
@@ -850,6 +871,21 @@ export class AgentMailBridge {
     return `${windir}\\System32\\cmd.exe`;
   }
 
+  private static async readEntireStream(pipe: any): Promise<string> {
+    if (!pipe) {
+      return "";
+    }
+    let result = "";
+    while (true) {
+      const chunk = await pipe.readString();
+      if (chunk === null || chunk === undefined || chunk === "") {
+        break;
+      }
+      result += chunk;
+    }
+    return result;
+  }
+
   private static async runPowerShell(scriptPath: string, args: string[]) {
     const { Subprocess } = ChromeUtils.importESModule(
       "resource://gre/modules/Subprocess.sys.mjs",
@@ -871,8 +907,8 @@ export class AgentMailBridge {
     });
 
     const [stdout, stderr, status] = await Promise.all([
-      proc.stdout ? proc.stdout.readString() : Promise.resolve(""),
-      proc.stderr ? proc.stderr.readString() : Promise.resolve(""),
+      this.readEntireStream(proc.stdout),
+      this.readEntireStream(proc.stderr),
       proc.wait(),
     ]);
 
@@ -917,8 +953,8 @@ export class AgentMailBridge {
     });
 
     const [stdout, stderr, status] = await Promise.all([
-      proc.stdout ? proc.stdout.readString() : Promise.resolve(""),
-      proc.stderr ? proc.stderr.readString() : Promise.resolve(""),
+      this.readEntireStream(proc.stdout),
+      this.readEntireStream(proc.stderr),
       proc.wait(),
     ]);
 
@@ -954,7 +990,7 @@ function parseLiteratureReply(record: AttachmentRecord) {
 
 function cleanReplySubject(subject: string) {
   return String(subject || "")
-    .replace(/^(成功回复|回复|回覆|答复|Re|FW|Fwd)\s*[:：]\s*/i, "")
+    .replace(/^(成功回复|回复|回覆|答复|Re|FW|Fwd|文献传递|原文传递|系统成功回复)\s*[:：\-\s]\s*/i, "")
     .trim();
 }
 
@@ -971,7 +1007,7 @@ function readLabeledValue(text: string, labels: string[]) {
     }
 
     const plain = text.match(
-      new RegExp(`^\\s*${escaped}\\s*[:：]\\s*([^\\r\\n]+)`, "im"),
+      new RegExp(`^\\s*${escaped}\\s*(?:[:：|]\\s*|\\s+)([^\\r\\n]+)`, "im"),
     );
     if (plain?.[1]) {
       return cleanMailValue(plain[1]);
@@ -1013,6 +1049,55 @@ function uniqueStrings(values: string[]) {
     result.push(value);
   }
   return result;
+}
+
+function matchesSenderFilter(email: string, filter: string): boolean {
+  if (!filter) return true;
+  const parts = filter
+    .split(/[,，;；]/)
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean);
+  if (parts.length === 0) return true;
+
+  const emailLower = email.trim().toLowerCase();
+  return parts.some((part) => {
+    if (part.startsWith("@")) {
+      return emailLower.endsWith(part);
+    }
+    if (emailLower === part) {
+      return true;
+    }
+    if (part.includes(".") && !part.includes("@")) {
+      return emailLower.endsWith("@" + part) || emailLower.endsWith("." + part);
+    }
+    return emailLower.includes(part);
+  });
+}
+
+function isLiteratureEmail(
+  fromEmail: string,
+  subject: string,
+  senderFilter: string,
+): boolean {
+  const emailLower = fromEmail.trim().toLowerCase();
+
+  if (senderFilter && !matchesSenderFilter(emailLower, senderFilter)) {
+    return false;
+  }
+
+  const isTrustedDomain =
+    emailLower.endsWith("@ivqqiv.com") || emailLower.endsWith("@clas.ac.cn");
+  if (isTrustedDomain) {
+    return true;
+  }
+
+  const subjectLower = subject.trim().toLowerCase();
+  const pattern = /^(成功回复|成功回覆|成功答复|文献传递|原文传递|系统成功回复)\s*[:：\-]?\s*/i;
+  if (pattern.test(subjectLower)) {
+    return true;
+  }
+
+  return false;
 }
 
 
@@ -1089,8 +1174,23 @@ param(
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+function Escape-Unicode($str) {
+  $sb = New-Object System.Text.StringBuilder
+  for ($i = 0; $i -lt $str.Length; $i++) {
+    $c = $str[$i]
+    $val = [int]$c
+    if ($val -gt 127) {
+      $sb.Append([string]::Format("\u{0:x4}", $val)) | Out-Null
+    } else {
+      $sb.Append($c) | Out-Null
+    }
+  }
+  return $sb.ToString()
+}
+
 function Write-Json($obj) {
-  $obj | ConvertTo-Json -Depth 8 -Compress
+  $json = $obj | ConvertTo-Json -Depth 8 -Compress
+  Write-Output (Escape-Unicode $json)
 }
 
 function Read-PopLine($reader) {
@@ -1119,7 +1219,30 @@ function Read-Multi($reader) {
 
 function Decode-Header($value) {
   if (-not $value) { return "" }
-  return [regex]::Replace($value, '=\?([^?]+)\?([bBqQ])\?([^?]+)\?=', {
+  
+  $hasRawBytes = $false
+  for ($i = 0; $i -lt $value.Length; $i++) {
+    $code = [int][char]$value[$i]
+    if ($code -ge 128 -and $code -le 255) {
+      $hasRawBytes = $true
+      break
+    }
+  }
+
+  $workingValue = $value
+  if ($hasRawBytes) {
+    try {
+      $rawBytes = [System.Text.Encoding]::GetEncoding("iso-8859-1").GetBytes($value)
+      $utf8Str = [System.Text.Encoding]::UTF8.GetString($rawBytes)
+      if ($utf8Str -match "\ufffd") {
+        $workingValue = [System.Text.Encoding]::GetEncoding("gbk").GetString($rawBytes)
+      } else {
+        $workingValue = $utf8Str
+      }
+    } catch {}
+  }
+
+  return [regex]::Replace($workingValue, '=\?([^?]+)\?([bBqQ])\?([^?]+)\?=', {
     param($m)
     $charset = $m.Groups[1].Value
     $enc = $m.Groups[2].Value.ToUpperInvariant()
@@ -1165,7 +1288,7 @@ function Decode-BodyText($body, $encoding, $charset) {
       }
       $bytes = $bytesList.ToArray()
     } else {
-      $bytes = [System.Text.Encoding]::ASCII.GetBytes($body)
+      $bytes = [System.Text.Encoding]::GetEncoding("iso-8859-1").GetBytes($body)
     }
     if (-not $charset) { $charset = "utf-8" }
     return [System.Text.Encoding]::GetEncoding($charset).GetString($bytes)
@@ -1241,7 +1364,7 @@ function Save-Part($headers, $body, $subject, $sender, $date, $messageId, $bodyR
       if ($cte -match "base64") {
         $bytes = [Convert]::FromBase64String(($body -replace "\s+", ""))
       } else {
-        $bytes = [System.Text.Encoding]::ASCII.GetBytes($body)
+        $bytes = [System.Text.Encoding]::GetEncoding("iso-8859-1").GetBytes($body)
       }
       [System.IO.File]::WriteAllBytes($path, $bytes)
       $records.Add([pscustomobject]@{
@@ -1268,7 +1391,7 @@ if ($UseSsl -eq "true") {
 } else {
   $stream = $netStream
 }
-$reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::ASCII)
+$reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::GetEncoding("iso-8859-1"))
 $writer = New-Object System.IO.StreamWriter($stream, [System.Text.Encoding]::ASCII)
 $writer.NewLine = ([string][char]13 + [string][char]10)
 $writer.AutoFlush = $true
