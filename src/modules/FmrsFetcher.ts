@@ -728,16 +728,31 @@ export class FmrsFetcher {
       return false;
     }
     const savedTo = await AgentMailBridge.downloadAttachment(record);
-    await Zotero.Attachments.importFromFile({
+    const attachmentID = await Zotero.Attachments.importFromFile({
       file: savedTo,
       libraryID: item.libraryID,
       parentItemID: item.id,
-      title: record.subject || item.getDisplayTitle() || record.filename,
-      contentType: record.contentType || "application/pdf",
+      title: item.getDisplayTitle() || record.filename.replace(/\.pdf$/i, ""),
+      contentType: "application/pdf",
     });
+
+    const zoteroPane = Zotero.getActiveZoteroPane();
+    if (zoteroPane) {
+      zoteroPane.updateItems([item.id]);
+      if (attachmentID) {
+        const id = typeof attachmentID === "number" ? attachmentID : (attachmentID as any).id;
+        zoteroPane.updateItems([id]);
+        try {
+          void Zotero.Fulltext.indexItems([id]);
+        } catch (e) {
+          ztoolkit.log(`[FMRS] failed to index attachment: ${e}`);
+        }
+      }
+    }
+
     this.notify(
       getString("popwin-mail-imported"),
-      record.subject || record.filename,
+      item.getDisplayTitle() || record.filename,
       "success",
     );
     return true;
