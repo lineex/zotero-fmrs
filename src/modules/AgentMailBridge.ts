@@ -536,16 +536,30 @@ export class AgentMailBridge {
       record.filename,
       record.body || "",
     ]);
-    const fmrsId = extractFmrsIdFromTexts([
-      parsed.identifier,
-      record.subject,
-      record.filename,
-      record.body || "",
-    ]);
+    const filenameFmrsId = extractFmrsIdFromFilename(record.filename);
+    let bodyTitleTerm = "";
+    if (filenameFmrsId && record.body) {
+      const cleanBody = stripHtml(record.body);
+      const lines = cleanBody.split(/\r?\n/);
+      for (const line of lines) {
+        if (line.toUpperCase().includes(filenameFmrsId.toUpperCase())) {
+          let cleaned = line
+            .replace(/\(?[PS]\d{6,12}\)?/i, "")
+            .replace(/^\s*(?:\[?\d+\]?|\d+[\.)]|【\d+】)\s*/, "")
+            .replace(/\[点击纠错\]|\[需要正式版\]|\[Need Fulltext\]/g, "")
+            .trim();
+          if (cleaned) {
+            bodyTitleTerm = getTitlePrefix(cleaned, 8);
+          }
+          break;
+        }
+      }
+    }
     const terms = [
       identifiers.doi,
       identifiers.pmid,
-      fmrsId,
+      filenameFmrsId,
+      bodyTitleTerm,
       getSafeSearchTitle(parsed.title),
       getSafeSearchTitle(cleanReplySubject(record.subject)),
       record.filename.replace(/\.pdf$/i, "").replace(/^DOI/i, ""),
@@ -558,6 +572,46 @@ export class AgentMailBridge {
   }
 
   static matchesItem(record: AttachmentRecord, item: Zotero.Item) {
+    const filenameFmrsId = extractFmrsIdFromFilename(record.filename);
+    const itemExtra = String(item.getField("extra") || "");
+    const itemIdentifiers = extractIdentifiersFromTexts([
+      String(item.getField("DOI") || ""),
+      String(item.getField("url") || ""),
+      String(item.getField("title") || ""),
+      String(item.getField("extra") || ""),
+    ]);
+    const itemPmid = itemIdentifiers.pmid;
+    const itemDoi = normalizeDOI(itemIdentifiers.doi);
+
+    // 1. Precise FMRS ID match
+    if (filenameFmrsId) {
+      const numericId = filenameFmrsId.slice(1);
+      if (numericId && (itemExtra.includes(numericId) || (itemPmid && itemPmid.includes(numericId)))) {
+        return true;
+      }
+    }
+
+    // 2. Title line match for multiple papers in body
+    if (filenameFmrsId && record.body) {
+      const cleanBody = stripHtml(record.body);
+      const lines = cleanBody.split(/\r?\n/);
+      for (const line of lines) {
+        if (line.toUpperCase().includes(filenameFmrsId.toUpperCase())) {
+          let cleaned = line
+            .replace(/\(?[PS]\d{6,12}\)?/i, "")
+            .replace(/^\s*(?:\[?\d+\]?|\d+[\.)]|【\d+】)\s*/, "")
+            .replace(/\[点击纠错\]|\[需要正式版\]|\[Need Fulltext\]/g, "")
+            .trim();
+          const itemTitle = String(item.getField("title") || "");
+          if (itemTitle && cleaned && titleMatches(itemTitle, cleaned)) {
+            return true;
+          }
+          break;
+        }
+      }
+    }
+
+    // Fallback matching logic
     const parsed = parseLiteratureReply(record);
     const recordIdentifiers = extractIdentifiersFromTexts([
       parsed.identifier,
@@ -566,16 +620,6 @@ export class AgentMailBridge {
       record.filename,
       record.body || "",
     ]);
-    const itemIdentifiers = extractIdentifiersFromTexts([
-      String(item.getField("DOI") || ""),
-      String(item.getField("url") || ""),
-      String(item.getField("title") || ""),
-      String(item.getField("extra") || ""),
-    ]);
-
-    const itemPmid = itemIdentifiers.pmid;
-    const itemDoi = normalizeDOI(itemIdentifiers.doi);
-
     const recordFmrsId = extractFmrsIdFromTexts([
       parsed.identifier,
       record.subject,
@@ -583,8 +627,6 @@ export class AgentMailBridge {
       record.body || "",
     ]);
 
-    // 1. 100% exact match checks:
-    const itemExtra = String(item.getField("extra") || "");
     if (recordFmrsId) {
       const numericId = recordFmrsId.slice(1);
       if (numericId && (itemExtra.includes(numericId) || (itemPmid && itemPmid.includes(numericId)))) {
@@ -615,23 +657,17 @@ export class AgentMailBridge {
       return true;
     }
 
-    // 2. Multi-factor matching check (at least 2 fields matching):
     let matchCount = 0;
-
-    // Feature 1: Title match (compare parsed title or clean subject)
     const itemTitle = String(item.getField("title") || "");
     const subjectTitle = parsed.title || cleanReplySubject(record.subject) || record.filename.replace(/\.pdf$/i, "");
     if (itemTitle && subjectTitle && titleMatches(itemTitle, subjectTitle)) {
       matchCount++;
-      // If the email body/subject doesn't contain any other metadata (author, journal, year), 
-      // we can't expect other features to match. In this case, the title match is strong enough.
       if (!parsed.author && !parsed.journal && !parsed.year) {
         matchCount++;
       }
     }
 
-    // Feature 2: Author match
-    const itemCreators = item.getCreators(); // [{ firstName, lastName, creatorTypeID }]
+    const itemCreators = item.getCreators();
     if (parsed.author && itemCreators.length > 0) {
       const emailAuthorText = parsed.author.toLowerCase();
       const anyAuthorMatches = itemCreators.some((c) => {
@@ -647,49 +683,79 @@ export class AgentMailBridge {
       }
     }
 
-    // Feature 3: Journal Name match
     const itemJournal = String(item.getField("publicationTitle") || item.getField("journalAbbreviation") || "");
     if (parsed.journal && itemJournal && titleMatches(itemJournal, parsed.journal)) {
       matchCount++;
     }
 
-    // Feature 4: Year match
     const itemDate = String(item.getField("date") || "");
     const itemYear = itemDate.match(/\b(19|20)\d{2}\b/)?.[0] || "";
     if (parsed.year && itemYear && parsed.year.includes(itemYear)) {
       matchCount++;
     }
 
-    // Feature 5: Volume match
     const itemVolume = String(item.getField("volume") || "").trim().toLowerCase();
     const parsedVolume = parsed.volume.trim().toLowerCase();
     if (parsedVolume && itemVolume && parsedVolume === itemVolume) {
       matchCount++;
     }
 
-    // Feature 6: Issue match
     const itemIssue = String(item.getField("issue") || "").trim().toLowerCase();
     const parsedIssue = parsed.issue.trim().toLowerCase();
     if (parsedIssue && itemIssue && parsedIssue === itemIssue) {
       matchCount++;
     }
 
-    // Feature 7: Pages match
     const itemPages = String(item.getField("pages") || "").trim().toLowerCase();
     const parsedPages = parsed.pages.trim().toLowerCase();
     if (parsedPages && itemPages && (parsedPages === itemPages || itemPages.includes(parsedPages))) {
       matchCount++;
     }
 
-    // If at least 2 fields match, return true
-    if (matchCount >= 2) {
-      return true;
-    }
-
-    return false;
+    return matchCount >= 2;
   }
 
   private static async isExactMatchCheck(record: AttachmentRecord, item: Zotero.Item): Promise<boolean> {
+    const filenameFmrsId = extractFmrsIdFromFilename(record.filename);
+    const itemExtra = String(item.getField("extra") || "");
+    const itemIdentifiers = extractIdentifiersFromTexts([
+      String(item.getField("DOI") || ""),
+      String(item.getField("url") || ""),
+      String(item.getField("title") || ""),
+      String(item.getField("extra") || ""),
+    ]);
+    const itemPmid = itemIdentifiers.pmid;
+    const itemDoi = normalizeDOI(itemIdentifiers.doi);
+
+    // 1. Precise FMRS ID match
+    if (filenameFmrsId) {
+      const numericId = filenameFmrsId.slice(1);
+      if (numericId && (itemExtra.includes(numericId) || (itemPmid && itemPmid.includes(numericId)))) {
+        return true;
+      }
+    }
+
+    // 2. Title line match for multiple papers in body
+    if (filenameFmrsId && record.body) {
+      const cleanBody = stripHtml(record.body);
+      const lines = cleanBody.split(/\r?\n/);
+      for (const line of lines) {
+        if (line.toUpperCase().includes(filenameFmrsId.toUpperCase())) {
+          let cleaned = line
+            .replace(/\(?[PS]\d{6,12}\)?/i, "")
+            .replace(/^\s*(?:\[?\d+\]?|\d+[\.)]|【\d+】)\s*/, "")
+            .replace(/\[点击纠错\]|\[需要正式版\]|\[Need Fulltext\]/g, "")
+            .trim();
+          const itemTitle = String(item.getField("title") || "");
+          if (itemTitle && cleaned && titleMatches(itemTitle, cleaned)) {
+            return true;
+          }
+          break;
+        }
+      }
+    }
+
+    // Fallback matching logic
     const parsed = parseLiteratureReply(record);
     const recordIdentifiers = extractIdentifiersFromTexts([
       parsed.identifier,
@@ -698,16 +764,6 @@ export class AgentMailBridge {
       record.filename,
       record.body || "",
     ]);
-    const itemIdentifiers = extractIdentifiersFromTexts([
-      String(item.getField("DOI") || ""),
-      String(item.getField("url") || ""),
-      String(item.getField("title") || ""),
-      String(item.getField("extra") || ""),
-    ]);
-
-    const itemPmid = itemIdentifiers.pmid;
-    const itemDoi = normalizeDOI(itemIdentifiers.doi);
-
     const recordFmrsId = extractFmrsIdFromTexts([
       parsed.identifier,
       record.subject,
@@ -715,7 +771,6 @@ export class AgentMailBridge {
       record.body || "",
     ]);
 
-    const itemExtra = String(item.getField("extra") || "");
     if (recordFmrsId) {
       const numericId = recordFmrsId.slice(1);
       if (numericId && (itemExtra.includes(numericId) || (itemPmid && itemPmid.includes(numericId)))) {
@@ -1101,15 +1156,29 @@ function isLiteratureEmail(
 }
 
 
+function extractFmrsIdFromFilename(filename: string): string {
+  if (!filename) return "";
+  const match = filename.match(/(?:^|[^A-Za-z0-9])([PS]\d{6,12})(?:[^0-9]|$)/i);
+  return match ? match[1].toUpperCase() : "";
+}
+
 function extractFmrsIdFromTexts(values: Array<string | undefined | null>): string {
   for (const value of values) {
     if (!value) continue;
-    const match = value.match(/\b([PS]\d{6,12})\b/i);
+    const match = value.match(/\b([PS]\d{6,12})(?=\b|_|[^0-9]|$)/i);
     if (match) {
       return match[1].toUpperCase();
     }
   }
   return "";
+}
+
+function getTitlePrefix(text: string, maxWords = 8): string {
+  const words = text.trim().split(/\s+/);
+  if (words.length <= maxWords) {
+    return text;
+  }
+  return words.slice(0, maxWords).join(" ");
 }
 
 
