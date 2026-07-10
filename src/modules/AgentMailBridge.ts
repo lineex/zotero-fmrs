@@ -539,19 +539,14 @@ export class AgentMailBridge {
     const filenameFmrsId = extractFmrsIdFromFilename(record.filename);
     let bodyTitleTerm = "";
     if (filenameFmrsId && record.body) {
-      const cleanBody = stripHtml(record.body);
-      const lines = cleanBody.split(/\r?\n/);
-      for (const line of lines) {
-        if (line.toUpperCase().includes(filenameFmrsId.toUpperCase())) {
-          let cleaned = line
-            .replace(/\(?[PS]\d{6,12}\)?/i, "")
-            .replace(/^\s*(?:\[?\d+\]?|\d+[\.)]|【\d+】)\s*/, "")
-            .replace(/\[点击纠错\]|\[需要正式版\]|\[Need Fulltext\]/g, "")
-            .trim();
-          if (cleaned) {
-            bodyTitleTerm = getTitlePrefix(cleaned, 8);
-          }
-          break;
+      const block = findBodyBlockForFmrsId(record.body, filenameFmrsId);
+      if (block) {
+        let cleaned = block
+          .replace(/\(?[PS]\d{6,12}\)?/i, "")
+          .replace(/\[点击纠错\]|\[需要正式版\]|\[Need Fulltext\]/g, "")
+          .trim();
+        if (cleaned) {
+          bodyTitleTerm = getTitlePrefix(cleaned, 8);
         }
       }
     }
@@ -593,21 +588,10 @@ export class AgentMailBridge {
 
     // 2. Title line match for multiple papers in body
     if (filenameFmrsId && record.body) {
-      const cleanBody = stripHtml(record.body);
-      const lines = cleanBody.split(/\r?\n/);
-      for (const line of lines) {
-        if (line.toUpperCase().includes(filenameFmrsId.toUpperCase())) {
-          let cleaned = line
-            .replace(/\(?[PS]\d{6,12}\)?/i, "")
-            .replace(/^\s*(?:\[?\d+\]?|\d+[\.)]|【\d+】)\s*/, "")
-            .replace(/\[点击纠错\]|\[需要正式版\]|\[Need Fulltext\]/g, "")
-            .trim();
-          const itemTitle = String(item.getField("title") || "");
-          if (itemTitle && cleaned && titleMatches(itemTitle, cleaned)) {
-            return true;
-          }
-          break;
-        }
+      const block = findBodyBlockForFmrsId(record.body, filenameFmrsId);
+      const itemTitle = String(item.getField("title") || "");
+      if (itemTitle && block && titleMatches(itemTitle, block)) {
+        return true;
       }
     }
 
@@ -737,21 +721,10 @@ export class AgentMailBridge {
 
     // 2. Title line match for multiple papers in body
     if (filenameFmrsId && record.body) {
-      const cleanBody = stripHtml(record.body);
-      const lines = cleanBody.split(/\r?\n/);
-      for (const line of lines) {
-        if (line.toUpperCase().includes(filenameFmrsId.toUpperCase())) {
-          let cleaned = line
-            .replace(/\(?[PS]\d{6,12}\)?/i, "")
-            .replace(/^\s*(?:\[?\d+\]?|\d+[\.)]|【\d+】)\s*/, "")
-            .replace(/\[点击纠错\]|\[需要正式版\]|\[Need Fulltext\]/g, "")
-            .trim();
-          const itemTitle = String(item.getField("title") || "");
-          if (itemTitle && cleaned && titleMatches(itemTitle, cleaned)) {
-            return true;
-          }
-          break;
-        }
+      const block = findBodyBlockForFmrsId(record.body, filenameFmrsId);
+      const itemTitle = String(item.getField("title") || "");
+      if (itemTitle && block && titleMatches(itemTitle, block)) {
+        return true;
       }
     }
 
@@ -1179,6 +1152,18 @@ function getTitlePrefix(text: string, maxWords = 8): string {
     return text;
   }
   return words.slice(0, maxWords).join(" ");
+}
+
+function findBodyBlockForFmrsId(body: string, fmrsId: string): string {
+  if (!body || !fmrsId) return "";
+  const cleanBody = stripHtml(body);
+  const blocks = cleanBody.split(/(?:^|\r?\n)(?:\d+[\.)]|\[\d+\]|【\d+】)\s*/);
+  for (const block of blocks) {
+    if (block.toUpperCase().includes(fmrsId.toUpperCase())) {
+      return block.trim();
+    }
+  }
+  return "";
 }
 
 
