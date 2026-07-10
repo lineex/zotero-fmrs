@@ -577,11 +577,15 @@ export class AgentMailBridge {
     ]);
     const itemPmid = itemIdentifiers.pmid;
     const itemDoi = normalizeDOI(itemIdentifiers.doi);
+    const itemTitle = String(item.getField("title") || "");
+
+    ztoolkit.log(`[FMRS] matchesItem check: filenameFmrsId=${filenameFmrsId}, itemTitle="${itemTitle.slice(0, 40)}...", itemPmid=${itemPmid}`);
 
     // 1. Precise FMRS ID match
     if (filenameFmrsId) {
       const numericId = filenameFmrsId.slice(1);
       if (numericId && (itemExtra.includes(numericId) || (itemPmid && itemPmid.includes(numericId)))) {
+        ztoolkit.log(`[FMRS] matchesItem: Precise match succeeded on FMRS ID ${filenameFmrsId}`);
         return true;
       }
     }
@@ -589,9 +593,13 @@ export class AgentMailBridge {
     // 2. Title line match for multiple papers in body
     if (filenameFmrsId && record.body) {
       const block = findBodyBlockForFmrsId(record.body, filenameFmrsId);
-      const itemTitle = String(item.getField("title") || "");
-      if (itemTitle && block && titleMatches(itemTitle, block)) {
-        return true;
+      ztoolkit.log(`[FMRS] matchesItem: Block for ${filenameFmrsId}: "${block ? block.slice(0, 100).replace(/\s+/g, ' ') : 'none'}..."`);
+      if (itemTitle && block) {
+        const isMatch = titleMatches(itemTitle, block);
+        ztoolkit.log(`[FMRS] matchesItem: Block title match result = ${isMatch}`);
+        if (isMatch) {
+          return true;
+        }
       }
     }
 
@@ -642,7 +650,7 @@ export class AgentMailBridge {
     }
 
     let matchCount = 0;
-    const itemTitle = String(item.getField("title") || "");
+    // itemTitle is already declared at the top of matchesItem
     const subjectTitle = parsed.title || cleanReplySubject(record.subject) || record.filename.replace(/\.pdf$/i, "");
     if (itemTitle && subjectTitle && titleMatches(itemTitle, subjectTitle)) {
       matchCount++;
@@ -710,11 +718,15 @@ export class AgentMailBridge {
     ]);
     const itemPmid = itemIdentifiers.pmid;
     const itemDoi = normalizeDOI(itemIdentifiers.doi);
+    const itemTitle = String(item.getField("title") || "");
+
+    ztoolkit.log(`[FMRS] isExactMatchCheck: filenameFmrsId=${filenameFmrsId}, itemTitle="${itemTitle.slice(0, 40)}...", itemPmid=${itemPmid}`);
 
     // 1. Precise FMRS ID match
     if (filenameFmrsId) {
       const numericId = filenameFmrsId.slice(1);
       if (numericId && (itemExtra.includes(numericId) || (itemPmid && itemPmid.includes(numericId)))) {
+        ztoolkit.log(`[FMRS] isExactMatchCheck: Precise match succeeded on FMRS ID ${filenameFmrsId}`);
         return true;
       }
     }
@@ -722,9 +734,13 @@ export class AgentMailBridge {
     // 2. Title line match for multiple papers in body
     if (filenameFmrsId && record.body) {
       const block = findBodyBlockForFmrsId(record.body, filenameFmrsId);
-      const itemTitle = String(item.getField("title") || "");
-      if (itemTitle && block && titleMatches(itemTitle, block)) {
-        return true;
+      ztoolkit.log(`[FMRS] isExactMatchCheck: Block for ${filenameFmrsId}: "${block ? block.slice(0, 100).replace(/\s+/g, ' ') : 'none'}..."`);
+      if (itemTitle && block) {
+        const isMatch = titleMatches(itemTitle, block);
+        ztoolkit.log(`[FMRS] isExactMatchCheck: Block title match result = ${isMatch}`);
+        if (isMatch) {
+          return true;
+        }
       }
     }
 
@@ -1054,15 +1070,20 @@ function cleanMailValue(value: string) {
 }
 
 function stripHtml(value: string) {
+  if (!value) return "";
   return value
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/p>/gi, "\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<\/tr>/gi, "\n")
     .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\r\n/g, "\n");
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n+/g, "\n");
 }
 
 function uniqueStrings(values: string[]) {
