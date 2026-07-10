@@ -1425,7 +1425,7 @@ function Save-Part($headers, $body, $subject, $sender, $date, $messageId, $bodyR
     return
   }
 
-  if (-not $filename -and $ct -match "text/plain") {
+  if (-not $filename -and (($ct -match "text/plain") -or ($ct -match "text/html"))) {
     $text = Decode-BodyText $body $cte $charset
     if ($text) { $bodyRef.Value = ($bodyRef.Value + ([string][char]10) + $text).Trim() }
     return

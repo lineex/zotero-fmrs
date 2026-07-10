@@ -652,7 +652,7 @@ export class FmrsFetcher {
           return match || null;
         },
         importAttachmentToItem: async (record, item) =>
-          this.importAgentMailAttachment(record, item),
+          this.importAgentMailAttachment(record, item, true),
       }, { interactive: true });
 
       if (summary.imported > 0) {
@@ -722,10 +722,13 @@ export class FmrsFetcher {
   static async importAgentMailAttachment(
     record: AttachmentRecord,
     item: Zotero.Item,
+    force = false,
   ) {
-    const bestAttachment = await item.getBestAttachment();
-    if (bestAttachment && bestAttachment.isPDFAttachment()) {
-      return false;
+    if (!force) {
+      const bestAttachment = await item.getBestAttachment();
+      if (bestAttachment && bestAttachment.isPDFAttachment()) {
+        return false;
+      }
     }
     const savedTo = await AgentMailBridge.downloadAttachment(record);
     const attachmentID = await Zotero.Attachments.importFromFile({
