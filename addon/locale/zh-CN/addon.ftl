@@ -78,6 +78,7 @@ pref-pop3-ssl-label = SSL
 pref-pop3-ssl = 使用 SSL
 pref-mail-verify-connection = 验证连接
 menuitem-mail-fetch = 从邮箱下载并附加
+menuitem-webpage = 前往论文的网页
 pref-mail-matchMode-label = 邮件匹配模式
 pref-mail-matchMode-auto = 自动匹配（默认）
 pref-mail-matchMode-manual = 手动确认

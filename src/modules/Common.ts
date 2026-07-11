@@ -629,6 +629,47 @@ export class Common {
       },
       icon: menuIcon,
     });
+
+    ztoolkit.Menu.register("item", {
+      tag: "menuitem",
+      id: "zotero-itemmenu-fmrs-webpage",
+      label: getString("menuitem-webpage"),
+      isHidden: () =>
+        !Zotero.getActiveZoteroPane()
+          .getSelectedItems()
+          .some((item) => item.isRegularItem()),
+      commandListener: () => {
+        const items = Zotero.getActiveZoteroPane().getSelectedItems();
+        const item = items[0];
+        if (item && item.isRegularItem()) {
+          const url = String(item.getField("url") || "").trim();
+          const doi = String(item.getField("DOI") || "").trim();
+          const extra = String(item.getField("extra") || "");
+          const pmidMatch = extra.match(/\bPMID[:\s]*(\d{4,12})\b/i);
+          const pmid = pmidMatch ? pmidMatch[1] : "";
+
+          let targetUrl = "";
+          if (doi) {
+            targetUrl = `https://doi.org/${doi}`;
+          } else if (url) {
+            targetUrl = url;
+          } else if (pmid) {
+            targetUrl = `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`;
+          }
+
+          if (targetUrl) {
+            Zotero.launchURL(targetUrl);
+          } else {
+            Zotero.alert(
+              Zotero.getMainWindow(),
+              "FMRS",
+              "未找到该文献的 DOI、URL 或 PMID，无法前往网页。"
+            );
+          }
+        }
+      },
+      icon: menuIcon,
+    });
   }
 
   static registerToolsMenuItems(win: _ZoteroTypes.MainWindow) {
