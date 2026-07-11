@@ -730,6 +730,21 @@ export class FmrsFetcher {
         return false;
       }
     }
+
+    // Prevent duplicate attachment of the exact same filename
+    const attachmentIDs = item.getAttachments();
+    if (attachmentIDs.length > 0) {
+      const attachments = (await Zotero.Items.getAsync(attachmentIDs)) as Zotero.Item[];
+      for (const att of attachments) {
+        if (att.isPDFAttachment()) {
+          const existingFilename = att.attachmentFilename;
+          if (existingFilename && existingFilename.toLowerCase() === record.filename.toLowerCase()) {
+            ztoolkit.log(`[FMRS] importAgentMailAttachment: Skipped duplicate import, filename "${record.filename}" already exists on item.`);
+            return false;
+          }
+        }
+      }
+    }
     const savedTo = await AgentMailBridge.downloadAttachment(record);
     const attachmentID = await Zotero.Attachments.importFromFile({
       file: savedTo,
